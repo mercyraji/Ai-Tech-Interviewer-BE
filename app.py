@@ -1,32 +1,42 @@
 from flask import Flask, request, jsonify
-from flask_sqlalchemy import SQLAlchemy
+import sqlitecloud
+import os
+from dotenv import load_dotenv
+
+# Function Imports
 from getLeetCode import getLeetCodeInfo
-from generateProblems import generate_problem 
-# from evaluateProblems import evaluate_response
+from generateProblems import generate_problem
+
+load_dotenv()
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///test.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-db = SQLAlchemy(app)
+# Configure SQLiteCloud connection
+DATABASE_URL = os.getenv('SQLITECLOUD_CONN_STRING')
+DATABASE_NAME = os.getenv('SQLITECLOUD_DB_NAME')
 
-class Users(db.Model):
-    uid = db.Column(db.String(120), primary_key=True)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    leetcode_username = db.Column(db.String(80), unique=True, nullable=True) # make sure this follows PEP8 naming conventions later
-    user_level_description = db.Column(db.String(500), nullable=False) # find a better name, essentially the initial user input describing their goal
-    
-    # Ratio based on submissions
-    overall_ratio = db.Column(db.Float, nullable=True)
-    easy_ratio = db.Column(db.Float, nullable=True)
-    medium_ratio = db.Column(db.Float, nullable=True)
-    hard_ratio = db.Column(db.Float, nullable=True)
-    
-    # Input their goal
-    current_goal = db.Column(db.String(200), nullable=True)
-    
-    def __repr__(self):
-        return f'<User {self.name}>'
+def get_connection():
+    conn = sqlitecloud.connect(DATABASE_URL)
+    conn.execute(f"USE DATABASE {DATABASE_NAME}")
+    return conn
+
+# This function will create the necessary tables if they don't exist
+def initialize_database():
+    conn = get_connection()
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            uid TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            leetcode_username TEXT UNIQUE,
+            user_level_description TEXT NOT NULL,
+            overall_ratio FLOAT,
+            easy_ratio FLOAT,
+            medium_ratio FLOAT,
+            hard_ratio FLOAT,
+            current_goal TEXT
+        )
+    ''')
+    conn.close()
 
 @app.route('/api/message', methods=['GET'])
 def get_message():
@@ -42,20 +52,14 @@ def create_user():
 
     # Fetching LeetCode stats
     easy_ratio, medium_ratio, hard_ratio, overall_ratio = getLeetCodeInfo(leetcode_username)
-    print("*****************\n",easy_ratio, "", medium_ratio,"",hard_ratio, "", overall_ratio, "\n*****************")
+    print("*****************\n", easy_ratio, "", medium_ratio, "", hard_ratio, "", overall_ratio, "\n*****************")
 
-    new_user = Users(
-        uid=uid,
-        email=email,
-        leetcode_username=leetcode_username,
-        user_level_description=user_level_description,
-        overall_ratio=overall_ratio,
-        easy_ratio=easy_ratio,
-        medium_ratio=medium_ratio,
-        hard_ratio=hard_ratio
-    )
-    db.session.add(new_user)
-    db.session.commit()
+    conn = get_connection()
+    conn.execute('''
+        INSERT INTO users (uid, email, leetcode_username, user_level_description, overall_ratio, easy_ratio, medium_ratio, hard_ratio)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (uid, email, leetcode_username, user_level_description, overall_ratio, easy_ratio, medium_ratio, hard_ratio))
+    conn.close()
 
     return jsonify({'message': 'User created successfully'}), 201
 
@@ -63,21 +67,24 @@ def create_user():
 def generate_problem_endpoint():
     data = request.get_json()
     uid = data['uid']
-    
-    user = Users.query.filter_by(uid=uid).first()
+
+    conn = get_connection()
+    cursor = conn.execute('SELECT * FROM users WHERE uid = ?', (uid,))
+    user = cursor.fetchone()
+    conn.close()
+
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
-    user_level_description = user.user_level_description 
-    easy_ratio = user.easy_ratio 
-    medium_ratio = user.medium_ratio 
-    hard_ratio = user.hard_ratio 
-    overall_ratio = user.overall_ratio 
-    
-    problem = generate_problem(user_level_description, easy_ratio, medium_ratio, hard_ratio, overall_ratio)
-    return jsonify({'problem': problem}) 
+    user_level_description = user['user_level_description']
+    easy_ratio = user['easy_ratio']
+    medium_ratio = user['medium_ratio']
+    hard_ratio = user['hard_ratio']
+    overall_ratio = user['overall_ratio']
 
-if __name__ == '__main__': 
-    with app.app_context(): 
-        db.create_all() 
-    app.run(debug=True) 
+    problem = generate_problem(user_level_description, easy_ratio, medium_ratio, hard_ratio, overall_ratio)
+    return jsonify({'problem': problem})
+
+if __name__ == '__main__':
+    initialize_database()
+    app.run(debug=True, port=5000)
