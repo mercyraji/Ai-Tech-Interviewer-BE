@@ -72,15 +72,19 @@ def generate_problem_endpoint():
     cursor = conn.execute('SELECT * FROM users WHERE uid = ?', (uid,))
     user = cursor.fetchone()
     conn.close()
+    
+    print(user)
+    
+    print(user[0])
 
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
-    user_level_description = user['user_level_description']
-    easy_ratio = user['easy_ratio']
-    medium_ratio = user['medium_ratio']
-    hard_ratio = user['hard_ratio']
-    overall_ratio = user['overall_ratio']
+    user_level_description = user[3]
+    easy_ratio = user[4]
+    medium_ratio = user[5]
+    hard_ratio = user[6]
+    overall_ratio = user[7]
 
     problem = generate_problem(user_level_description, easy_ratio, medium_ratio, hard_ratio, overall_ratio)
     return jsonify({'problem': problem})
