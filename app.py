@@ -79,6 +79,18 @@ def evaluate_response_endpoint():
     return jsonify({'evaluation': "error"})
 
 
+@app.route('api/deleteUser', methods=['POST'])
+def delete_user():
+    data = request.get_json()
+    uid = data['uid']
+
+    # user will already be logged into their account
+    # so no need to check if user exists
+    db_funcs.remove_user(uid)
+
+    return jsonify({'message': 'User created successfully'}), 201
+
+
 if __name__ == '__main__':
     db_funcs.initialize_database()
     app.run(debug=True, port=5000)

@@ -88,6 +88,7 @@ def get_user_id(uid):
 
     return user
 
+
 def update_history(id, problem, response, evaluation):
 
     conn = get_connection()
@@ -97,5 +98,15 @@ def update_history(id, problem, response, evaluation):
     cur.execute('''INSERT INTO userhistory 
         (user_id, user_question, user_response, saved_response, saved_date) VALUES (?, ?, ?, ?)''',
     (id, problem, response, evaluation, save_date))
+    conn.commit()
+    conn.close()
+
+
+def remove_user(uid):
+
+    conn = get_connection()
+
+    cur = conn.cursor()
+    cur.execute('DELETE FROM users WHERE uid = ?', (uid,))
     conn.commit()
     conn.close()
