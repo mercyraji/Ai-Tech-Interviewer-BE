@@ -18,6 +18,7 @@ app = Flask(__name__)
 def get_message():
     return jsonify({'message': 'Hello from Flask!'})
 
+
 @app.route('/api/createUser', methods=['POST'])
 def create_user():
     data = request.get_json()
@@ -41,9 +42,9 @@ def generate_problem_endpoint():
     uid = data['uid']
 
     user = db_funcs.get_user_id(uid)
-
+    
     print(user)
-
+    
     print(user[0])
 
     if not user:
