@@ -97,3 +97,5 @@ def update_history(id, problem, response, evaluation):
     cur.execute('''INSERT INTO userhistory 
         (user_id, user_question, user_response, saved_response, saved_date) VALUES (?, ?, ?, ?)''',
     (id, problem, response, evaluation, save_date))
+    conn.commit()
+    conn.close()
