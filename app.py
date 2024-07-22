@@ -1,11 +1,12 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from database.models import User, UserHistory
+import openai
 
 # Function Imports
 from APIs.getLeetCode import getLeetCodeInfo
 from APIs.generateProblems import generate_problem
-from APIs.evaluateResponse import evaluate_response
+from APIs.evaluateResponse import evaluate_response, parse_evaluation
 from messaging.emailing import send_email
 
 app = Flask(__name__)
@@ -101,7 +102,9 @@ def evaluate_response_endpoint():
 
     if problem and response and uid:
         evaluation = evaluate_response(problem, response)
-        UserHistory.update_history(uid, problem, response, evaluation)
+        evaluation2, feedback, final_grade = parse_evaluation(evaluation)
+        # print(problem, response, uid, evaluation2, feedback, final_grade)
+        UserHistory.update_history(uid, problem, response, evaluation2, feedback, int(final_grade))
         return jsonify({"evaluation": evaluation})
 
     return jsonify({"evaluation": "error"})
@@ -151,6 +154,32 @@ def send_email_endpoint():
     body = data["body"]
     result = send_email(to_email, subject, body)
     return jsonify({"message": result})
+
+
+@app.route('/api/getUsers', methods=['GET'])
+def get_user():
+    uid = request.args.get('uid')
+    user = User.get_user_id(uid)
+    grades = UserHistory.get_grades(uid)
+
+    # return the final grade of an assignment & its saved date
+    if grades is not None:
+        grades_list = [{'final_grade': grade['final_grade'], 'saved_date': grade['saved_date']} for grade in grades]
+    else:
+        # if user has no final grades, return empty list
+        grades_list = []
+
+    # user should exist
+    return jsonify({
+        'user':
+            {'username': user[2],
+             'level_description': user[3],
+             'current_goal': user[8],
+             'upcoming_interview': user[9],
+             'signup_date': user[10]
+             },
+        'grades': grades_list
+    })
 
 
 if __name__ == "__main__":

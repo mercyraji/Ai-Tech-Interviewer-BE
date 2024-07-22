@@ -6,19 +6,39 @@ load_dotenv()
 
 openai.api_key = os.getenv('OPEN_AI_API_KEY')
 
-def generate_problem(user_level_description, easy_ratio, medium_ratio, hard_ratio, overall_ratio):
-    gpt_prompt = f"""
-    Based on the following user profile, generate a coding problem. The problem should include the problem description, specifications, and a bare-bones function or class definition if necessary.
-    
-    - Level Description: {user_level_description}
-    User LeetCode Submission Acceptance to Submission Count Profile Stats:
-    - Easy Problem Ratio: {easy_ratio}
-    - Medium Problem Ratio: {medium_ratio}
-    - Hard Problem Ratio: {hard_ratio}
-    - Overall Problem Ratio: {overall_ratio}
 
-    Provide a Python interview problem based on the information above. If you provide a problem that needs class information, provide that as well. Make it simple very simple like a regular leetcode
-    NO MARKDOWN RETURNS
+def generate_problem(
+        user_level_description,
+        easy_ratio,
+        medium_ratio,
+        hard_ratio,
+        overall_ratio,
+        language,
+):
+    gpt_prompt = f"""
+        Generate a {language} coding problem tailored to a user's profile and skill level. Ensure the problem is clear, concise, returned with NO MARKDOWN, and follows this structure:
+
+        Problem Description: A detailed description of the problem.
+
+        Example 1:
+        Input: [input example]
+        Output: [expected output]
+        Example 2:
+        Input: [input example]
+        Output: [expected output]
+        Constraints: List all constraints.
+
+        Function Signature: Provide the function signature.
+
+        Use the following User Profile:
+
+        Level Description: {user_level_description}
+        Easy LeetCode Problem Success Ratio: {easy_ratio * 100}%
+        Medium LeetCode Problem Success Ratio: {medium_ratio * 100}%
+        Hard LeetCode Problem Success Ratio: {hard_ratio * 100}%
+        Overall LeetCode Problem Success Ratio: {overall_ratio * 100}%
+
+        Ensure the problem fits their skill set. If specific data structures or custom objects are needed, provide necessary class definitions or additional code. Make sure the problem is similar to a standard LeetCode problem and appropriately challenging. ONLY INCLUDE SPECIFIED STRUCTURE, NOTHING ELSE.
     """
 
     response = openai.ChatCompletion.create(
@@ -27,5 +47,4 @@ def generate_problem(user_level_description, easy_ratio, medium_ratio, hard_rati
     recommendation = response.choices[0].message["content"].strip()
 
     return recommendation
-
 

@@ -1,6 +1,7 @@
 import openai
 import os
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 
@@ -26,6 +27,22 @@ def evaluate_response(prompt, user_response):
     evaluation = response.choices[0].message["content"].strip()
 
     return evaluation
+
+
+def parse_evaluation(response):
+    evaluation_pattern = r"Evaluation:\s*(.*?)\s*Feedback:"
+    feedback_pattern = r"Feedback:\s*(.*?)\s*Final Grade:"
+    grade_pattern = r"Final Grade:\s*(\d+)"
+
+    evaluation_match = re.search(evaluation_pattern, response, re.DOTALL)
+    feedback_match = re.search(feedback_pattern, response, re.DOTALL)
+    grade_match = re.search(grade_pattern, response)
+
+    evaluation = evaluation_match.group(1).strip() if evaluation_match else ''
+    feedback = feedback_match.group(1).strip() if feedback_match else ''
+    final_grade = int(grade_match.group(1)) if grade_match else 0
+
+    return evaluation, feedback, final_grade
 
 # Example for proof of concept
 

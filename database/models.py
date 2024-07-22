@@ -125,7 +125,9 @@ class UserHistory:
                 user_id TEXT NOT NULL,
                 user_question TEXT NOT NULL,
                 user_response TEXT NOT NULL,
-                saved_response TEXT NOT NULL,
+                evaluation TEXT NOT NULL,
+                feedback TEXT NOT NULL,
+                final_grade TEXT NOT NULL,
                 saved_date TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY (user_id) REFERENCES users (uid) ON DELETE CASCADE
                 )
@@ -134,12 +136,21 @@ class UserHistory:
             conn.commit()
 
     @staticmethod
-    def update_history(id, problem, response, evaluation):
+    def update_history(id, problem, response, evaluation, feedback, final_grade):
         save_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with DatabaseConnection() as conn:
             conn.execute(
                 """INSERT INTO userhistory 
-                (user_id, user_question, user_response, saved_response, saved_date) VALUES (?, ?, ?, ?, ?)""",
-                (id, problem, response, evaluation, save_date),
+                (user_id, user_question, user_response, evaluation, 
+                feedback, final_grade, saved_date) VALUES (?, ?, ?, ?, ?)""",
+                (id, problem, response, evaluation, feedback, final_grade, save_date),
             )
             conn.commit()
+
+    @staticmethod
+    def get_grades(uid):
+        with DatabaseConnection() as conn:
+            cur = conn.cursor()
+            grades = cur.execute('SELECT final_grade, saved_date FROM userhistory WHERE user_id = ?', (uid,)).fetchall()
+
+        return grades
