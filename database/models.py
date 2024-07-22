@@ -113,6 +113,12 @@ class User:
             cur = conn.cursor()
             cur.execute('''UPDATE users SET upcoming_interview = ? WHERE uid = ?''', (new_interview, uid))
 
+    @staticmethod
+    def update_level(uid, new_level):
+        with DatabaseConnection() as conn:
+            cur = conn.cursor()
+            cur.execute('''UPDATE users SET user_level_description = ? WHERE uid = ?''', (new_level, uid))
+
 
 class UserHistory:
     @staticmethod
@@ -153,4 +159,37 @@ class UserHistory:
             cur = conn.cursor()
             grades = cur.execute('SELECT final_grade, saved_date FROM userhistory WHERE user_id = ?', (uid,)).fetchall()
 
-        return grades
+        # return the final grade of an assignment & its saved date
+        if grades is not None:
+            grades_list = [{'final_grade': grade['final_grade'], 'saved_date': grade['saved_date']} for grade in grades]
+        else:
+            # if user has no final grades, return empty list
+            grades_list = []
+
+        return grades_list
+
+    @staticmethod
+    def count_history(uid):
+        # will fetch user history for number of attempts per save date
+        with DatabaseConnection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT saved_date FROM userhistory WHERE user_id = ?", (uid,))
+            records = cur.fetchall()
+
+            if records is not None:
+                # Count occurrences of each saved date
+                attempts_count = {}
+                for record in records:
+                    saved_date = record[0]
+                    if saved_date in attempts_count:
+                        attempts_count[saved_date] += 1
+                    else:
+                        attempts_count[saved_date] = 1
+
+                # Convert dictionary to list of dictionaries
+                attempts_list = [{'saved_date': date, 'count': count} for date, count in attempts_count.items()]
+            else:
+                attempts_list = []
+
+            return attempts_list
+

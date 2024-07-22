@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from database.models import User, UserHistory
 import openai
+import os
 
 # Function Imports
 from APIs.getLeetCode import getLeetCodeInfo
@@ -11,6 +12,34 @@ from messaging.emailing import send_email
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+openai.api_key = os.getenv("OPEN_AI_API_KEY")
+
+
+def get_ai_response(prompt, problem):
+    system_prompt = (
+        f"""
+        You are an interview assistant. You are presenting a coding problem to the user and helping them through the problem. 
+
+        You must not give away the solution directly. If the user asks for hints, provide only subtle hints that guide them in the right direction. Only give hints if the user provides context about their current progress or what they have tried so far. Also, don't answer more than what is needed. If a user asks something that can be answered in a yes or no response, return just yes or no
+
+        Make your answers short and concise. No more than 2 sentences
+
+        Here is the problem: \n\n"
+        {problem}\n\n"
+        User: {prompt}\n\n"
+        Remember, do not give the solution directly.
+        """
+    )
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    return response.choices[0].message["content"].strip()
 
 
 @app.route("/api/message", methods=["GET"])
@@ -110,10 +139,10 @@ def evaluate_response_endpoint():
     return jsonify({"evaluation": "error"})
 
 
-@app.route('api/deleteUser', methods=['POST'])
+@app.route('/api/deleteUser', methods=['POST'])
 def delete_user():
     data = request.get_json()
-    uid = data['uid']
+    uid = data.get('uid')
 
     # user will already be logged into their account
     # so no need to check if user exists
@@ -122,7 +151,6 @@ def delete_user():
     return jsonify({'message': 'User removed successfully'}), 201
 
 
-# place holder for updating user's current goal
 @app.route('/api/updateGoal', methods=['POST'])
 def update_goal():
     data = request.get_json()
@@ -134,7 +162,6 @@ def update_goal():
     return jsonify({'message': 'User\'s goal updated successfully'}), 201
 
 
-# place holder for updating user's upcoming interview
 @app.route('/api/updateInterview', methods=['POST'])
 def update_interview():
     data = request.get_json()
@@ -144,6 +171,17 @@ def update_interview():
     User.update_interview(uid, interview)
 
     return jsonify({'message': 'User\'s interview updated successfully'}), 201
+
+
+@app.route('/api/updateLevel', methods=['POST'])
+def update_level():
+    data = request.get_json()
+    uid = data['uid']
+    level_description = data['level_description']
+
+    User.update_level(uid, level_description)
+
+    return jsonify({'message': 'User\'s level updated successfully'}), 201
 
 
 @app.route("/api/sendEmail", methods=["POST"])
@@ -160,14 +198,8 @@ def send_email_endpoint():
 def get_user():
     uid = request.args.get('uid')
     user = User.get_user_id(uid)
-    grades = UserHistory.get_grades(uid)
-
-    # return the final grade of an assignment & its saved date
-    if grades is not None:
-        grades_list = [{'final_grade': grade['final_grade'], 'saved_date': grade['saved_date']} for grade in grades]
-    else:
-        # if user has no final grades, return empty list
-        grades_list = []
+    grades = UserHistory.get_grades(uid) # gets final grades & corresponding saved dates
+    attempts = UserHistory.count_history(uid) # gets the number of attempts for each saved date
 
     # user should exist
     return jsonify({
@@ -178,8 +210,18 @@ def get_user():
              'upcoming_interview': user[9],
              'signup_date': user[10]
              },
-        'grades': grades_list
+        'grades': grades,
+        'attempts': attempts
     })
+
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    data = request.get_json()
+    user_message = data.get('message')
+    problem = data.get('problem')
+    ai_response = get_ai_response(user_message, problem)
+    return jsonify({"ai_response": ai_response})
 
 
 if __name__ == "__main__":
