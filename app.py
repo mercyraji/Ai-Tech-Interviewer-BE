@@ -1,54 +1,79 @@
 from flask import Flask, request, jsonify
-import sqlitecloud
-import os
-from dotenv import load_dotenv
-import db_funcs
+from flask_cors import CORS
+from database.models import User, UserHistory
 
 # Function Imports
-from getLeetCode import getLeetCodeInfo
-from generateProblems import generate_problem
-from evaluateResponse import evaluate_response
-
-load_dotenv()
+from APIs.getLeetCode import getLeetCodeInfo
+from APIs.generateProblems import generate_problem
+from APIs.evaluateResponse import evaluate_response
+from messaging.emailing import send_email
 
 app = Flask(__name__)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 
-@app.route('/api/message', methods=['GET'])
+@app.route("/api/message", methods=["GET"])
 def get_message():
-    return jsonify({'message': 'Hello from Flask!'})
+    return jsonify({"message": "Hello from Flask!"})
 
 
-@app.route('/api/createUser', methods=['POST'])
+@app.route("/api/createUser", methods=["POST"])
 def create_user():
     data = request.get_json()
-    uid = data['uid']
-    email = data['email']
-    leetcode_username = data['leetcodeUsername']
-    user_level_description = data['levelDescription']
+    uid = data["uid"]
+    email = data["email"]
+    leetcode_username = None
+    user_level_description = "N/A"
 
-    # Fetching LeetCode stats
-    easy_ratio, medium_ratio, hard_ratio, overall_ratio = getLeetCodeInfo(leetcode_username)
-    print("*****************\n", easy_ratio, "", medium_ratio, "", hard_ratio, "", overall_ratio, "\n*****************")
+    User.add_user(uid, email, leetcode_username, user_level_description)
 
-    db_funcs.add_user(uid, email, leetcode_username, user_level_description, overall_ratio, easy_ratio, medium_ratio, hard_ratio)
-
-    return jsonify({'message': 'User created successfully'}), 201
+    return jsonify({"message": "User created successfully"}), 201
 
 
-@app.route('/api/generateProblem', methods=['POST'])
+@app.route("/api/newUser", methods=["POST"])
+def new_user():
+    data = request.get_json()
+    # print(f"Recieved data: {data}")
+    uid = data["uid"]
+    leetcode_username = data["leetcode_username"]
+    coding_level = data["coding_level"]
+    goal = data["goal"]
+    upcoming_interview = data["upcoming_interview"]
+
+    overall_ratio, easy_ratio, medium_ratio, hard_ratio = None, None, None, None
+
+    if leetcode_username != "N/A":
+        overall_ratio, easy_ratio, medium_ratio, hard_ratio = getLeetCodeInfo(
+            leetcode_username
+        )
+
+    # print(f"Updating user: {uid}, {leetcode_username}, {coding_level}, {goal}, {upcoming_interview}, {overall_ratio}, {easy_ratio}, {medium_ratio}, {hard_ratio}")
+
+    User.update_user(
+        uid,
+        leetcode_username,
+        coding_level,
+        goal,
+        upcoming_interview,
+        overall_ratio,
+        easy_ratio,
+        medium_ratio,
+        hard_ratio,
+    )
+
+    return jsonify({"message": "New user info received"}), 201
+
+
+@app.route("/api/generateProblem", methods=["POST"])
 def generate_problem_endpoint():
     data = request.get_json()
-    uid = data['uid']
+    uid = data["uid"]
+    language = data["language"]
 
-    user = db_funcs.get_user_id(uid)
-    
-    print(user)
-    
-    print(user[0])
+    user = User.get_user_id(uid)
 
     if not user:
-        return jsonify({'error': 'User not found'}), 404
+        return jsonify({"error": "User not found"}), 404
 
     user_level_description = user[3]
     easy_ratio = user[4]
@@ -56,27 +81,30 @@ def generate_problem_endpoint():
     hard_ratio = user[6]
     overall_ratio = user[7]
 
-    problem = generate_problem(user_level_description, easy_ratio, medium_ratio, hard_ratio, overall_ratio)
-    return jsonify({'problem': problem})
+    problem = generate_problem(
+        user_level_description,
+        easy_ratio,
+        medium_ratio,
+        hard_ratio,
+        overall_ratio,
+        language,
+    )
+    return jsonify({"problem": problem})
 
 
-@app.route('/api/evaluateResponse', methods=['POST'])
+@app.route("/api/evaluateResponse", methods=["POST"])
 def evaluate_response_endpoint():
     data = request.get_json()
-    problem = data['problem']
-    response = data['userResponse']
-    uid = data['uid']
-    # print(uid)
+    problem = data["problem"]
+    response = data["userResponse"]
+    uid = data["uid"]
 
     if problem and response and uid:
         evaluation = evaluate_response(problem, response)
+        UserHistory.update_history(uid, problem, response, evaluation)
+        return jsonify({"evaluation": evaluation})
 
-        # ADD FUNCTION TO SAVE TO DATABASE HERE paramaters should be (uid, problem, response, evaluation)
-        db_funcs.update_history(uid, problem, response, evaluation)
-
-        return jsonify({'evaluation': evaluation})
-
-    return jsonify({'evaluation': "error"})
+    return jsonify({"evaluation": "error"})
 
 
 @app.route('api/deleteUser', methods=['POST'])
@@ -86,11 +114,47 @@ def delete_user():
 
     # user will already be logged into their account
     # so no need to check if user exists
-    db_funcs.remove_user(uid)
+    User.remove_user(uid)
 
-    return jsonify({'message': 'User created successfully'}), 201
+    return jsonify({'message': 'User removed successfully'}), 201
 
 
-if __name__ == '__main__':
-    db_funcs.initialize_database()
+# place holder for updating user's current goal
+@app.route('/api/updateGoal', methods=['POST'])
+def update_goal():
+    data = request.get_json()
+    uid = data['uid']
+    goal = data['current_goal']
+
+    User.update_goal(uid, goal)
+
+    return jsonify({'message': 'User\'s goal updated successfully'}), 201
+
+
+# place holder for updating user's upcoming interview
+@app.route('/api/updateInterview', methods=['POST'])
+def update_interview():
+    data = request.get_json()
+    uid = data['uid']
+    interview = data['upcoming_interview']
+
+    User.update_interview(uid, interview)
+
+    return jsonify({'message': 'User\'s interview updated successfully'}), 201
+
+
+@app.route("/api/sendEmail", methods=["POST"])
+def send_email_endpoint():
+    data = request.get_json()
+    to_email = data["to_email"]
+    subject = data["subject"]
+    body = data["body"]
+    result = send_email(to_email, subject, body)
+    return jsonify({"message": result})
+
+
+if __name__ == "__main__":
+    from database.initialization import initialize_database
+
+    initialize_database()
     app.run(debug=True, port=5000)

@@ -110,3 +110,7 @@ def remove_user(uid):
     cur.execute('DELETE FROM users WHERE uid = ?', (uid,))
     conn.commit()
     conn.close()
+
+def get_profile(uid):
+    # return username, upcoming interview, current goal
+    pass
