@@ -37,5 +37,5 @@ def clear_user_history():
         conn.close()
 
 
-if __name__ == '__main__':
-    clear_users_table()
+"""if __name__ == '__main__':
+    clear_users_table()"""

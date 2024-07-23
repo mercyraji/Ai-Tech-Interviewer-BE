@@ -7,16 +7,14 @@ import os
 # Function Imports
 from APIs.getLeetCode import getLeetCodeInfo
 from APIs.generateProblems import generate_problem
-from APIs.evaluateResponse import evaluate_response, parse_evaluation
+from APIs.evaluateResponse import evaluate_response, evaluate_speech, parse_evaluation
 from messaging.emailing import send_email
-from db_clear_users import clear_user_history
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 openai.api_key = os.getenv("OPEN_AI_API_KEY")
 
-clear_user_history()
 
 def get_ai_response(prompt, problem):
     system_prompt = (
@@ -53,12 +51,19 @@ def get_message():
 def create_user():
     data = request.get_json()
     uid = data["uid"]
+    username = data['username']
     email = data["email"]
     leetcode_username = None
     user_level_description = "N/A"
 
-    User.add_user(uid, email, leetcode_username, user_level_description)
-
+    User.add_user(uid, username, email, leetcode_username, user_level_description)
+    """try:
+        send_email(to_email=email,
+                   subject="Welcome to Interviewer AI!",
+                   body="Thank you for signing up. We're excited to apart of your technical interviewing journey!")
+    except Exception as e:
+        print(f"Failed to send email: {str(e)}")
+"""
     return jsonify({"message": "User created successfully"}), 201
 
 
@@ -96,6 +101,18 @@ def new_user():
     return jsonify({"message": "New user info received"}), 201
 
 
+@app.route('/api/login', methods=['POST'])
+def log_user():
+    data = request.get_json()
+    username = data.get('username')
+    email = User.get_email(username)
+
+    if email is not None:
+        return jsonify({'email': email[0]}), 201
+    else:
+        return jsonify({'error': 'Username not found'}), 404
+
+
 @app.route("/api/generateProblem", methods=["POST"])
 def generate_problem_endpoint():
     data = request.get_json()
@@ -107,11 +124,11 @@ def generate_problem_endpoint():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    user_level_description = user[3]
-    easy_ratio = user[4]
-    medium_ratio = user[5]
-    hard_ratio = user[6]
-    overall_ratio = user[7]
+    user_level_description = user[4]
+    easy_ratio = user[6]
+    medium_ratio = user[7]
+    hard_ratio = user[8]
+    overall_ratio = user[5]
 
     problem = generate_problem(
         user_level_description,
@@ -130,13 +147,36 @@ def evaluate_response_endpoint():
     problem = data["problem"]
     response = data["userResponse"]
     uid = data["uid"]
+    speech_input = data.get('speechInput', 'N/A')
 
     if problem and response and uid:
-        evaluation = evaluate_response(problem, response)
-        evaluation2, feedback, final_grade = parse_evaluation(evaluation)
-        # print(problem, response, uid, evaluation2, feedback, final_grade)
-        UserHistory.update_history(uid, problem, response, evaluation2, feedback, int(final_grade))
-        return jsonify({"evaluation": evaluation})
+        code_evaluation = evaluate_response(problem, response)
+        code_evaluation2, feedback, final_grade = parse_evaluation(code_evaluation)
+
+        speech_evaluation2 = speech_feedback = final_speech_grade = None
+        if speech_input != "N/A":
+            speech_evaluation = evaluate_speech(problem, response, speech_input)
+            speech_evaluation2, speech_feedback, final_speech_grade = parse_evaluation(speech_evaluation)
+            print(speech_evaluation2, speech_feedback, final_speech_grade)
+
+        UserHistory.update_history(uid, problem, response, code_evaluation2, feedback, int(final_grade),
+                                   speech_evaluation2, speech_feedback, final_speech_grade)
+
+        response_data = {
+            "code_evaluation": {
+                "evaluation": code_evaluation2,
+                "feedback": feedback,
+                "final_grade": final_grade
+            },
+            "speech_evaluation": {
+                "evaluation": speech_evaluation2,
+                "feedback": speech_feedback,
+                "final_grade": final_speech_grade
+            } if speech_input != "N/A" else None
+        }
+
+        print(response_data)
+        return jsonify(response_data)
 
     return jsonify({"evaluation": "error"})
 
@@ -200,19 +240,21 @@ def send_email_endpoint():
 def get_user():
     uid = request.args.get('uid')
     user = User.get_user_id(uid)
-    grades = UserHistory.get_grades(uid) # gets final grades & corresponding saved dates
-    attempts = UserHistory.count_history(uid) # gets the number of attempts for each saved date
+    code_grades = UserHistory.get_code_grades(uid)  # gets final grades & corresponding saved dates
+    speech_grades = UserHistory.get_speech_grades(uid)
+    attempts = UserHistory.count_history(uid)  # gets the number of attempts for each saved date
 
     # user should exist
     return jsonify({
         'user':
             {'username': user[2],
-             'level_description': user[3],
-             'current_goal': user[8],
-             'upcoming_interview': user[9],
-             'signup_date': user[10]
+             'level_description': user[4],
+             'current_goal': user[9],
+             'upcoming_interview': user[10],
+             'signup_date': user[11]
              },
-        'grades': grades,
+        'code_grades': code_grades,
+        'speech_grades': speech_grades,
         'attempts': attempts
     })
 
@@ -224,6 +266,38 @@ def chat():
     problem = data.get('problem')
     ai_response = get_ai_response(user_message, problem)
     return jsonify({"ai_response": ai_response})
+
+
+@app.route("/api/sendSignInEmail", methods=["POST"])
+def send_sign_in_email():
+    data = request.get_json()
+    to_email = data["to_email"]
+    try:
+        send_email(
+            to_email=to_email,
+            subject="Successful Sign-In",
+            body="You have successfully signed in to your account. You are one step closer to mastering the technicual interview!"
+        )
+        return jsonify({"message": "Sign-in email sent successfully"}), 200
+    except Exception as e:
+        return jsonify({"message": f"Failed to send sign-in email: {str(e)}"}), 500
+
+
+@app.route("/api/getUserHistory", methods=["GET"])
+def get_user_history():
+    try:
+        uid = request.args.get("uid")
+        user = User.get_user_id(uid)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        history = UserHistory.get_user_history(uid)
+
+        return jsonify({"history": history})
+    except Exception as e:
+        #logging.error(f"Failed to get user history: {str(e)}")
+        return jsonify({"message": f"Failed to get user history: {str(e)}"}), 500
+
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ class User:
                 CREATE TABLE IF NOT EXISTS users (
                     uid TEXT PRIMARY KEY NOT NULL,
                     email TEXT UNIQUE NOT NULL,
+                    username TEXT UNIQUE NOT NULL,
                     leetcode_username TEXT UNIQUE,
                     user_level_description TEXT NOT NULL,
                     overall_ratio FLOAT,
@@ -26,17 +27,18 @@ class User:
             conn.commit()
 
     @staticmethod
-    def add_user(user_id, email, lc, level):
+    def add_user(user_id, username, email, lc, level):
         signup_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with DatabaseConnection() as conn:
             conn.execute(
                 """
-                INSERT INTO users (uid, email, leetcode_username, user_level_description, overall_ratio,
+                INSERT INTO users (uid, email, username, leetcode_username, user_level_description, overall_ratio,
                     easy_ratio, medium_ratio, hard_ratio, current_goal, upcoming_interview, signup_date) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     user_id,
                     email,
+                    username,
                     lc,
                     level,
                     None,
@@ -58,16 +60,24 @@ class User:
         return user
 
     @staticmethod
+    def get_email(username):
+        with DatabaseConnection() as conn:
+            cur = conn.execute('SELECT email FROM users WHERE username = ?', (username,))
+            email = cur.fetchone()
+
+        return email
+
+    @staticmethod
     def update_user(
-        uid,
-        leetcode_username,
-        coding_level,
-        goal,
-        upcoming_interview,
-        overall_ratio=None,
-        easy_ratio=None,
-        medium_ratio=None,
-        hard_ratio=None,
+            uid,
+            leetcode_username,
+            coding_level,
+            goal,
+            upcoming_interview,
+            overall_ratio=None,
+            easy_ratio=None,
+            medium_ratio=None,
+            hard_ratio=None,
     ):
         # print(f"Executing update for user {uid}")
         with DatabaseConnection() as conn:
@@ -131,9 +141,12 @@ class UserHistory:
                 user_id TEXT NOT NULL,
                 user_question TEXT NOT NULL,
                 user_response TEXT NOT NULL,
-                evaluation TEXT NOT NULL,
-                feedback TEXT NOT NULL,
-                final_grade TEXT NOT NULL,
+                code_evaluation TEXT NOT NULL,
+                code_feedback TEXT NOT NULL,
+                final_code_grade INTEGER NOT NULL,
+                speech_evaluation TEXT,
+                speech_feedback TEXT,
+                final_speech_grade INTEGER,
                 saved_date TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY (user_id) REFERENCES users (uid) ON DELETE CASCADE
                 )
@@ -142,26 +155,48 @@ class UserHistory:
             conn.commit()
 
     @staticmethod
-    def update_history(id, problem, response, evaluation, feedback, final_grade):
+    def update_history(user_id, problem, response, code_evaluation, code_feedback, final_code_grade,
+                       speech_evaluation=None, speech_feedback=None, final_speech_grade=None):
         save_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with DatabaseConnection() as conn:
             conn.execute(
                 """INSERT INTO userhistory 
-                (user_id, user_question, user_response, evaluation, 
-                feedback, final_grade, saved_date) VALUES (?, ?, ?, ?, ?)""",
-                (id, problem, response, evaluation, feedback, final_grade, save_date),
+                 (user_id, user_question, user_response, code_evaluation, code_feedback, final_code_grade, 
+                 speech_evaluation, speech_feedback, final_speech_grade, saved_date) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?""",
+                (user_id, problem, response, code_evaluation, code_feedback, final_code_grade,
+                 speech_evaluation, speech_feedback, final_speech_grade, save_date)
             )
             conn.commit()
 
     @staticmethod
-    def get_grades(uid):
+    def get_code_grades(uid):
         with DatabaseConnection() as conn:
             cur = conn.cursor()
-            grades = cur.execute('SELECT final_grade, saved_date FROM userhistory WHERE user_id = ?', (uid,)).fetchall()
+            grades = cur.execute('SELECT final_code_grade, saved_date FROM userhistory WHERE user_id = ?',
+                                 (uid,)).fetchall()
 
         # return the final grade of an assignment & its saved date
         if grades is not None:
-            grades_list = [{'final_grade': grade['final_grade'], 'saved_date': grade['saved_date']} for grade in grades]
+            grades_list = [{'final_code_grade': grade['final_code_grade'], 'saved_date': grade['saved_date']} for grade
+                           in grades]
+        else:
+            # if user has no final grades, return empty list
+            grades_list = []
+
+        return grades_list
+
+    @staticmethod
+    def get_speech_grades(uid):
+        with DatabaseConnection() as conn:
+            cur = conn.cursor()
+            grades = cur.execute('SELECT final_speech_grade, saved_date FROM userhistory WHERE user_id = ?',
+                                 (uid,)).fetchall()
+
+        # return the final grade of an assignment & its saved date
+        if grades is not None:
+            grades_list = [{'final_speech_grade': grade['final_speech_grade'], 'saved_date': grade['saved_date']} for
+                           grade in grades]
         else:
             # if user has no final grades, return empty list
             grades_list = []
@@ -170,17 +205,17 @@ class UserHistory:
 
     @staticmethod
     def count_history(uid):
-        # will fetch user history for number of attempts per save date
+        # will fetch user history for number of attempts per save date (for coding attempts)
         with DatabaseConnection() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT saved_date FROM userhistory WHERE user_id = ?", (uid,))
+            cur.execute("SELECT final_code_grade, saved_date FROM userhistory WHERE user_id = ?", (uid,))
             records = cur.fetchall()
 
             if records is not None:
                 # Count occurrences of each saved date
                 attempts_count = {}
                 for record in records:
-                    saved_date = record[0]
+                    saved_date = record[1]
                     if saved_date in attempts_count:
                         attempts_count[saved_date] += 1
                     else:
@@ -193,3 +228,34 @@ class UserHistory:
 
             return attempts_list
 
+
+    @staticmethod
+    def get_user_history(uid):
+        with DatabaseConnection() as conn:
+            cur = conn.cursor()
+            history = cur.execute(
+                "SELECT user_question, user_response, "
+                'COALESCE(code_evaluation, "N/A"), COALESCE(code_feedback, "N/A"), '
+                'COALESCE(final_code_grade, "N/A"), COALESCE(speech_evaluation, "N/A"), '
+                'COALESCE(speech_feedback, "N/A"), COALESCE(final_speech_grade, "N/A"), '
+                'COALESCE(saved_date, "N/A") '
+                "FROM userhistory WHERE user_id = ?",
+                (uid,),
+            ).fetchall()
+
+        history_list = [
+            {
+                "user_question": record[0],
+                "user_response": record[1],
+                "code_evaluation": record[2],
+                "code_feedback": record[3],
+                "final_code_grade": record[4],
+                "speech_evaluation": record[5],
+                "speech_feedback": record[6],
+                "final_speech_grade": record[7],
+                "saved_date": record[8],
+            }
+            for record in history
+        ]
+
+        return history_list
